@@ -1,5 +1,14 @@
 from .did_wba import (
+    ANP_MESSAGE_SERVICE_TYPE,
+    VM_KEY_AUTH,
+    VM_KEY_E2EE_AGREEMENT,
+    VM_KEY_E2EE_SIGNING,
+    build_agent_message_service,
+    build_anp_message_service,
+    build_group_message_service,
+    compute_jwk_fingerprint,
     create_did_wba_document,
+    create_did_wba_document_with_key_binding,
     extract_auth_header_parts,
     generate_auth_header,
     generate_auth_json,
@@ -7,22 +16,54 @@ from .did_wba import (
     resolve_did_wba_document_sync,
     verify_auth_header_signature,
     verify_auth_json_signature,
+    verify_did_key_binding,
 )
+from .did_resolver import resolve_did_document, resolve_did_document_sync
 from .did_wba_authenticator import DIDWbaAuthHeader
 from .did_wba_verifier import DidWbaVerifier, DidWbaVerifierConfig, DidWbaVerifierError
+from .federation import (
+    FederatedVerificationError,
+    FederatedVerificationResult,
+    verify_federated_http_request,
+)
+from .http_signatures import (
+    build_content_digest,
+    extract_signature_metadata,
+    generate_http_signature_headers,
+    verify_http_message_signature,
+)
 
 # Define what should be exported when using "from anp.authentication import *"
-__all__ = ['create_did_wba_document', \
-           'resolve_did_wba_document', \
-           'resolve_did_wba_document_sync', \
-           'generate_auth_header', \
-           'generate_auth_json', \
-           'verify_auth_header_signature', \
-           'verify_auth_json_signature', \
-           'extract_auth_header_parts', \
-           'DIDWbaAuthHeader', \
-           'DidWbaVerifier', \
-           'DidWbaVerifierConfig', \
-           'DidWbaVerifierError'
-           ]
-
+__all__ = [
+    "VM_KEY_AUTH",
+    "VM_KEY_E2EE_SIGNING",
+    "VM_KEY_E2EE_AGREEMENT",
+    "ANP_MESSAGE_SERVICE_TYPE",
+    "build_anp_message_service",
+    "build_agent_message_service",
+    "build_group_message_service",
+    "compute_jwk_fingerprint",
+    "create_did_wba_document",
+    "create_did_wba_document_with_key_binding",
+    "resolve_did_wba_document",
+    "resolve_did_wba_document_sync",
+    "resolve_did_document",
+    "resolve_did_document_sync",
+    "generate_auth_header",
+    "generate_auth_json",
+    "verify_auth_header_signature",
+    "verify_auth_json_signature",
+    "verify_did_key_binding",
+    "extract_auth_header_parts",
+    "DIDWbaAuthHeader",
+    "DidWbaVerifier",
+    "DidWbaVerifierConfig",
+    "DidWbaVerifierError",
+    "FederatedVerificationResult",
+    "FederatedVerificationError",
+    "verify_federated_http_request",
+    "build_content_digest",
+    "generate_http_signature_headers",
+    "verify_http_message_signature",
+    "extract_signature_metadata",
+]

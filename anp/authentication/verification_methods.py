@@ -54,12 +54,19 @@ class EcdsaSecp256k1VerificationKey2019(VerificationMethod):
             # Decode base64url signature
             signature_bytes = base64.urlsafe_b64decode(signature + '=' * (-len(signature) % 4))
             
-            # Convert R|S format to DER format
-            r_length = len(signature_bytes) // 2
-            r = int.from_bytes(signature_bytes[:r_length], 'big')
-            s = int.from_bytes(signature_bytes[r_length:], 'big')
+            # Convert R|S format (IEEE P1363) to DER format
+            key_size = (self.public_key.key_size + 7) // 8
+            expected_len = key_size * 2
+            if len(signature_bytes) == expected_len:
+                r = int.from_bytes(signature_bytes[:key_size], 'big')
+                s = int.from_bytes(signature_bytes[key_size:], 'big')
+            else:
+                # Fallback: legacy variable-length encoding
+                r_length = len(signature_bytes) // 2
+                r = int.from_bytes(signature_bytes[:r_length], 'big')
+                s = int.from_bytes(signature_bytes[r_length:], 'big')
             signature_der = utils.encode_dss_signature(r, s)
-            
+
             self.public_key.verify(
                 signature_der,
                 content,
@@ -120,9 +127,10 @@ class EcdsaSecp256k1VerificationKey2019(VerificationMethod):
             # Try to parse DER format
             try:
                 r, s = utils.decode_dss_signature(signature_bytes)
-                # If successful parsing as DER format, convert to R|S format
-                r_bytes = r.to_bytes((r.bit_length() + 7) // 8, byteorder='big')
-                s_bytes = s.to_bytes((s.bit_length() + 7) // 8, byteorder='big')
+                # Fixed-length encoding (IEEE P1363): pad to curve order size
+                key_size = 32  # secp256k1 order is 256 bits = 32 bytes
+                r_bytes = r.to_bytes(key_size, byteorder='big')
+                s_bytes = s.to_bytes(key_size, byteorder='big')
                 signature = r_bytes + s_bytes
             except Exception:
                 # If not DER format, assume it's already in R|S format
@@ -136,6 +144,115 @@ class EcdsaSecp256k1VerificationKey2019(VerificationMethod):
         except Exception as e:
             logging.error(f"Failed to encode signature: {str(e)}")
             raise ValueError(f"Invalid signature format: {str(e)}")
+
+class EcdsaSecp256r1VerificationKey2019(VerificationMethod):
+    """EcdsaSecp256r1VerificationKey2019 implementation (P-256 curve)"""
+
+    def __init__(self, public_key: ec.EllipticCurvePublicKey):
+        self.public_key = public_key
+
+    def verify_signature(self, content: bytes, signature: str) -> bool:
+        try:
+            signature_bytes = base64.urlsafe_b64decode(signature + '=' * (-len(signature) % 4))
+
+            # Convert R|S format (IEEE P1363) to DER format
+            key_size = (self.public_key.key_size + 7) // 8
+            expected_len = key_size * 2
+            if len(signature_bytes) == expected_len:
+                r = int.from_bytes(signature_bytes[:key_size], 'big')
+                s = int.from_bytes(signature_bytes[key_size:], 'big')
+            else:
+                # Fallback: legacy variable-length encoding
+                r_length = len(signature_bytes) // 2
+                r = int.from_bytes(signature_bytes[:r_length], 'big')
+                s = int.from_bytes(signature_bytes[r_length:], 'big')
+            signature_der = utils.encode_dss_signature(r, s)
+
+            self.public_key.verify(
+                signature_der,
+                content,
+                ec.ECDSA(hashes.SHA256())
+            )
+            return True
+        except Exception as e:
+            logging.error(f"Secp256r1 signature verification failed: {str(e)}")
+            return False
+
+    @classmethod
+    def from_dict(cls, method_dict: Dict) -> 'EcdsaSecp256r1VerificationKey2019':
+        if 'publicKeyJwk' in method_dict:
+            return cls(cls._extract_public_key_from_jwk(method_dict['publicKeyJwk']))
+        elif 'publicKeyMultibase' in method_dict:
+            return cls(cls._extract_public_key_from_multibase(method_dict['publicKeyMultibase']))
+        raise ValueError("Unsupported key format for EcdsaSecp256r1VerificationKey2019")
+
+    @staticmethod
+    def _extract_public_key_from_jwk(jwk: Dict) -> ec.EllipticCurvePublicKey:
+        if jwk.get('kty') != 'EC' or jwk.get('crv') != 'P-256':
+            raise ValueError("Invalid JWK parameters for Secp256r1")
+
+        x = int.from_bytes(base64.urlsafe_b64decode(
+            jwk['x'] + '=' * (-len(jwk['x']) % 4)), 'big')
+        y = int.from_bytes(base64.urlsafe_b64decode(
+            jwk['y'] + '=' * (-len(jwk['y']) % 4)), 'big')
+
+        return ec.EllipticCurvePublicNumbers(
+            x, y, ec.SECP256R1()
+        ).public_key()
+
+    @staticmethod
+    def _extract_public_key_from_multibase(multibase: str) -> ec.EllipticCurvePublicKey:
+        if not multibase.startswith('z'):
+            raise ValueError("Unsupported multibase encoding")
+        key_bytes = base58.b58decode(multibase[1:])
+        return ec.EllipticCurvePublicKey.from_encoded_point(
+            ec.SECP256R1(),
+            key_bytes
+        )
+
+    @staticmethod
+    def encode_signature(signature_bytes: bytes) -> str:
+        try:
+            try:
+                r, s = utils.decode_dss_signature(signature_bytes)
+                # Fixed-length encoding (IEEE P1363): pad to curve order size
+                key_size = 32  # P-256 order is 256 bits = 32 bytes
+                r_bytes = r.to_bytes(key_size, byteorder='big')
+                s_bytes = s.to_bytes(key_size, byteorder='big')
+                signature = r_bytes + s_bytes
+            except Exception:
+                if len(signature_bytes) % 2 != 0:
+                    raise ValueError("Invalid R|S signature format: length must be even")
+                signature = signature_bytes
+
+            return base64.urlsafe_b64encode(signature).rstrip(b'=').decode('ascii')
+
+        except Exception as e:
+            logging.error(f"Failed to encode signature: {str(e)}")
+            raise ValueError(f"Invalid signature format: {str(e)}")
+
+
+class X25519KeyAgreementKey2019(VerificationMethod):
+    """X25519KeyAgreementKey2019 implementation (key agreement only, no signing)"""
+
+    def __init__(self, public_key):
+        self.public_key = public_key
+
+    def verify_signature(self, content: bytes, signature: str) -> bool:
+        raise NotImplementedError("X25519 keys cannot be used for signature verification")
+
+    @classmethod
+    def from_dict(cls, method_dict: Dict) -> 'X25519KeyAgreementKey2019':
+        if 'publicKeyMultibase' in method_dict:
+            from anp.e2e_encryption_hpke.key_pair import public_key_from_multibase
+            pk = public_key_from_multibase(method_dict['publicKeyMultibase'])
+            return cls(pk)
+        raise ValueError("Unsupported key format for X25519KeyAgreementKey2019")
+
+    @staticmethod
+    def encode_signature(signature_bytes: bytes) -> str:
+        raise NotImplementedError("X25519 keys cannot be used for signature encoding")
+
 
 class Ed25519VerificationKey2018(VerificationMethod):
     """Ed25519VerificationKey2018 implementation"""
@@ -174,6 +291,8 @@ class Ed25519VerificationKey2018(VerificationMethod):
         if not multibase.startswith('z'):
             raise ValueError("Unsupported multibase encoding")
         key_bytes = base58.b58decode(multibase[1:])
+        if len(key_bytes) == 34 and key_bytes[:2] == b"\xed\x01":
+            key_bytes = key_bytes[2:]
         return ed25519.Ed25519PublicKey.from_public_bytes(key_bytes)
 
     @staticmethod
@@ -198,7 +317,11 @@ def create_verification_method(method_dict: Dict) -> VerificationMethod:
         
     method_mapping = {
         'EcdsaSecp256k1VerificationKey2019': EcdsaSecp256k1VerificationKey2019,
+        'EcdsaSecp256r1VerificationKey2019': EcdsaSecp256r1VerificationKey2019,
+        'X25519KeyAgreementKey2019': X25519KeyAgreementKey2019,
         'Ed25519VerificationKey2018': Ed25519VerificationKey2018,
+        'Ed25519VerificationKey2020': Ed25519VerificationKey2018,
+        'Multikey': Ed25519VerificationKey2018,
     }
     
     method_class = method_mapping.get(method_type)
